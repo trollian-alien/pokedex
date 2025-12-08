@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
-
+	"bytes"
 	"github.com/trollian-alien/pokedex/internal/pokecache"
 )
 
@@ -45,7 +45,7 @@ var commands = map[string]cliCommand{
 	"explore": {
 		name:        "explore",
 		description: "explores the stopulated area",
-		callback:    previousLocationAreas,
+		callback:    encounter,
 	},
 }
 
@@ -93,29 +93,37 @@ type locationArea struct {
 	} `json:"results"`
 }
 
-// map and mapb command helper
-func areaLocationPrinter(URL string, c *pokecache.Cache) error {
-	//first check if it's in the cache
+//helper function to  GET a JSON and add it to the cache if not already there
+func getJSON(URL string, c *pokecache.Cache) ([]byte, error) {
 	jason, ok := c.Get(URL)
-	if !ok { //not in the cache, make a new HTTP request
+	if !ok {
 		res, err := http.Get(URL)
 		if err != nil {
-			fmt.Printf("Can't display locations. Error: %v", err)
-			return err
+			return nil, err
 		}
 		defer res.Body.Close()
+
 		// read the JSON
 		jason, err = io.ReadAll(res.Body)
 		if err != nil {
-			fmt.Printf("Can't display locations. Error: %v", err)
-			return err
+			return nil, err
 		}
 		c.Add(URL, jason)
+	}
+	return jason, nil
+}
+
+// map and mapb command helper
+func areaLocationPrinter(URL string, c *pokecache.Cache) error {
+	jason, err := getJSON(URL, c)
+	if err != nil {
+		fmt.Printf("Can't get location areas! Error: %v\n", err)
+		return err
 	}
 
 	var locations locationArea
 	if err := json.Unmarshal(jason, &locations); err != nil {
-		fmt.Printf("Can't display locations. Error: %v", err)
+		fmt.Printf("Can't display locations. Error: %v\n", err)
 		return err
 	}
 
@@ -199,4 +207,36 @@ type encounters struct {
 			} `json:"version"`
 		} `json:"version_details"`
 	} `json:"pokemon_encounters"`
+}
+
+//encounter command
+func encounter(args []string, c *pokecache.Cache) error {
+	if len(args) == 0 {
+		fmt.Println("You need to specify a location area duh! Usage encounter <location-area>")
+		return nil
+	}
+	
+	location := args[0]
+	locationURL := "https://pokeapi.co/api/v2/location-area/" + location + "/"
+	jason, err := getJSON(locationURL, c)
+	if err != nil {
+		fmt.Printf("Error getting encounter data. Error: %v\n", err)
+		return err
+	} else if bytes.Equal(jason,[]byte("Not Found")) {
+		fmt.Println("That's not a pokemon location!")
+		return nil
+	}
+
+	var pokemons encounters
+	if err := json.Unmarshal(jason, &pokemons); err != nil {
+		fmt.Printf("Error getting encounter data. Error: %v\n", err)
+		return err
+	}
+
+	fmt.Printf("Exploring %v...\n", args[0])
+	fmt.Println("Found Pokemon:")
+	for _, pokemon := range pokemons.PokemonEncounters {
+		fmt.Println(pokemon.Pokemon.Name)
+	}
+	return nil
 }
