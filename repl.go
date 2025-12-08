@@ -18,7 +18,7 @@ func cleanInput(text string) []string {
 type cliCommand struct {
 	name        string
 	description string
-	callback    func(*pokecache.Cache) error
+	callback    func([]string, *pokecache.Cache) error
 }
 
 var commands = map[string]cliCommand{
@@ -27,10 +27,10 @@ var commands = map[string]cliCommand{
 		description: "Exit the Pokedex",
 		callback:    commandExit,
 	},
-	"help": {
+	"help": { 
 		name:        "help",
-		description: "Helps you know some other commands",
-		callback:    help,
+		description: "Why would you ask help for the help command?",
+		callback:    nil, //using help instead of nil here causes circular dependency (bad). implent seprate logic for help lol
 	},
 	"map": {
 		name:        "map",
@@ -42,27 +42,47 @@ var commands = map[string]cliCommand{
 		description: "displays the previous 20 locations areas",
 		callback:    previousLocationAreas,
 	},
+	"explore": {
+		name:        "explore",
+		description: "explores the stopulated area",
+		callback:    previousLocationAreas,
+	},
 }
 
 // exit command
-func commandExit(c *pokecache.Cache) error {
+func commandExit(args []string, c *pokecache.Cache) error {
 	fmt.Println("Closing the Pokedex... Goodbye!")
 	os.Exit(0)
 	return nil
 }
 
-// help command
-func help(c *pokecache.Cache) error {
-	fmt.Print(`Welcome to the Pokedex! Here are some useful commands:\n
-				exit: exits the Pokedex\n
-				map: displays the next 20 location areas\n
-				mapb: displays the previous 20 location areas\n`)
+// help command; handled seprately so no need for a cache
+func help(args []string) error {
+	if len(args) == 0 {
+		fmt.Println(`Welcome to the Pokedex! Here is a list of the available commands:`)
+		for key := range commands {
+			fmt.Println(key)
+		}
+		fmt.Println("For more details about each command, type help <command-name>")
+	} else {
+		arg := args[0]
+		command, ok := commands[arg]
+		if !ok {
+			fmt.Println("This command does nothing...")
+			fmt.Println("because it doesn't exist!")
+		} else {
+			fmt.Println("Name: " + command.name)
+			fmt.Println("Description: " + command.description)
+		}
+	}
 	return nil
 }
 
+//global variables for map and mapb
 var nextMapURL = "https://pokeapi.co/api/v2/location-area"
 var previousMapURL = ""
 
+//json intepreter struct for map and mapb
 type locationArea struct {
 	Count    int    `json:"count"`
 	Next     string `json:"next"`
@@ -108,7 +128,7 @@ func areaLocationPrinter(URL string, c *pokecache.Cache) error {
 }
 
 // map command
-func nextLocationAreas(c *pokecache.Cache) error {
+func nextLocationAreas(args []string, c *pokecache.Cache) error {
 	URL := nextMapURL
 	if URL == "" {
 		fmt.Println("Wow you exhausted all the location areas!")
@@ -118,11 +138,65 @@ func nextLocationAreas(c *pokecache.Cache) error {
 }
 
 // mapb command
-func previousLocationAreas(c *pokecache.Cache) error {
+func previousLocationAreas(args []string, c *pokecache.Cache) error {
 	URL := previousMapURL
 	if URL == "" {
 		fmt.Println("No previous areas!")
 		return fmt.Errorf("no previous area")
 	}
 	return areaLocationPrinter(URL, c)
+}
+
+// json interpreter struct for explore command
+type encounters struct {
+	EncounterMethodRates []struct {
+		EncounterMethod struct {
+			Name string `json:"name"`
+			URL  string `json:"url"`
+		} `json:"encounter_method"`
+		VersionDetails []struct {
+			Rate    int `json:"rate"`
+			Version struct {
+				Name string `json:"name"`
+				URL  string `json:"url"`
+			} `json:"version"`
+		} `json:"version_details"`
+	} `json:"encounter_method_rates"`
+	GameIndex int `json:"game_index"`
+	ID        int `json:"id"`
+	Location  struct {
+		Name string `json:"name"`
+		URL  string `json:"url"`
+	} `json:"location"`
+	Name  string `json:"name"`
+	Names []struct {
+		Language struct {
+			Name string `json:"name"`
+			URL  string `json:"url"`
+		} `json:"language"`
+		Name string `json:"name"`
+	} `json:"names"`
+	PokemonEncounters []struct {
+		Pokemon struct {
+			Name string `json:"name"`
+			URL  string `json:"url"`
+		} `json:"pokemon"`
+		VersionDetails []struct {
+			EncounterDetails []struct {
+				Chance          int   `json:"chance"`
+				ConditionValues []any `json:"condition_values"`
+				MaxLevel        int   `json:"max_level"`
+				Method          struct {
+					Name string `json:"name"`
+					URL  string `json:"url"`
+				} `json:"method"`
+				MinLevel int `json:"min_level"`
+			} `json:"encounter_details"`
+			MaxChance int `json:"max_chance"`
+			Version   struct {
+				Name string `json:"name"`
+				URL  string `json:"url"`
+			} `json:"version"`
+		} `json:"version_details"`
+	} `json:"pokemon_encounters"`
 }

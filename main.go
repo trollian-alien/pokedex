@@ -19,11 +19,16 @@ func main() {
 			continue
 		}
 		commandName := input[0]
+		args := input[1:]
+		if commandName == "help" {
+			help(args)
+			continue
+		}
 		command, ok := commands[commandName]
 		if !ok {
 			fmt.Println("Unknown command")
 		} else {
-			command.callback(c)
+			command.callback(args, c)
 		}
 	}
 }
