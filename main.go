@@ -4,9 +4,12 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"time"
+	"github.com/trollian-alien/pokedex/internal/pokecache"
 )
 
 func main() {
+	c := pokecache.NewCache(60*time.Second)
 	scanner := bufio.NewScanner(os.Stdin)
 	for {
 		fmt.Print("Pokedex > ")
@@ -20,7 +23,7 @@ func main() {
 		if !ok {
 			fmt.Println("Unknown command")
 		} else {
-			command.callback()
+			command.callback(c)
 		}
 	}
 }

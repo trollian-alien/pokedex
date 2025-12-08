@@ -1,11 +1,14 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
-	"encoding/json"
+
+	"github.com/trollian-alien/pokedex/internal/pokecache"
 )
 
 func cleanInput(text string) []string {
@@ -15,15 +18,15 @@ func cleanInput(text string) []string {
 type cliCommand struct {
 	name        string
 	description string
-	callback    func() error
+	callback    func(*pokecache.Cache) error
 }
 
 var commands = map[string]cliCommand{
-    "exit": {
-        name:        "exit",
-        description: "Exit the Pokedex",
-        callback:    commandExit,
-    },
+	"exit": {
+		name:        "exit",
+		description: "Exit the Pokedex",
+		callback:    commandExit,
+	},
 	"help": {
 		name:        "help",
 		description: "Helps you know some other commands",
@@ -41,13 +44,15 @@ var commands = map[string]cliCommand{
 	},
 }
 
-func commandExit() error {
+// exit command
+func commandExit(c *pokecache.Cache) error {
 	fmt.Println("Closing the Pokedex... Goodbye!")
 	os.Exit(0)
 	return nil
 }
 
-func help() error {
+// help command
+func help(c *pokecache.Cache) error {
 	fmt.Print(`Welcome to the Pokedex! Here are some useful commands:\n
 				exit: exits the Pokedex\n
 				map: displays the next 20 location areas\n
@@ -68,20 +73,33 @@ type locationArea struct {
 	} `json:"results"`
 }
 
-func areaLocationPrinter(URL string) error {
-	res, err := http.Get(URL)
-	if err != nil {
-		fmt.Printf("Can't display locations. Error: %v", err)
-		return err
+// map and mapb command helper
+func areaLocationPrinter(URL string, c *pokecache.Cache) error {
+	//first check if it's in the cache
+	jason, ok := c.Get(URL)
+	if !ok { //not in the cache, make a new HTTP request
+		res, err := http.Get(URL)
+		if err != nil {
+			fmt.Printf("Can't display locations. Error: %v", err)
+			return err
+		}
+		defer res.Body.Close()
+		// read the JSON
+		jason, err = io.ReadAll(res.Body)
+		if err != nil {
+			fmt.Printf("Can't display locations. Error: %v", err)
+			return err
+		}
+		c.Add(URL, jason)
 	}
-	defer res.Body.Close()
-	decoder := json.NewDecoder(res.Body)
+
 	var locations locationArea
-	if err := decoder.Decode(&locations); err != nil {
+	if err := json.Unmarshal(jason, &locations); err != nil {
 		fmt.Printf("Can't display locations. Error: %v", err)
 		return err
 	}
-	for _, place := range(locations.Results) {
+
+	for _, place := range locations.Results {
 		fmt.Println(place.Name)
 	}
 	nextMapURL = locations.Next
@@ -89,20 +107,22 @@ func areaLocationPrinter(URL string) error {
 	return nil
 }
 
-func nextLocationAreas() error {
+// map command
+func nextLocationAreas(c *pokecache.Cache) error {
 	URL := nextMapURL
 	if URL == "" {
 		fmt.Println("Wow you exhausted all the location areas!")
 		return fmt.Errorf("no new area")
 	}
-	return areaLocationPrinter(URL)
+	return areaLocationPrinter(URL, c)
 }
 
-func previousLocationAreas() error {
+// mapb command
+func previousLocationAreas(c *pokecache.Cache) error {
 	URL := previousMapURL
 	if URL == "" {
 		fmt.Println("No previous areas!")
 		return fmt.Errorf("no previous area")
 	}
-	return areaLocationPrinter(URL)
+	return areaLocationPrinter(URL, c)
 }
