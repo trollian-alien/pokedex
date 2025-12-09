@@ -1,13 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"strings"
-	"bytes"
+	"math/rand/v2"
 	"github.com/trollian-alien/pokedex/internal/pokecache"
 )
 
@@ -47,6 +46,11 @@ var commands = map[string]cliCommand{
 		description: "explores the stopulated area",
 		callback:    encounter,
 	},
+	"catch": {
+		name:        "catch",
+		description: "attempts to catch a pokemon",
+		callback:    catch,
+	},
 }
 
 // exit command
@@ -81,37 +85,6 @@ func help(args []string) error {
 //global variables for map and mapb
 var nextMapURL = "https://pokeapi.co/api/v2/location-area"
 var previousMapURL = ""
-
-//json intepreter struct for map and mapb
-type locationArea struct {
-	Count    int    `json:"count"`
-	Next     string `json:"next"`
-	Previous string `json:"previous"`
-	Results  []struct {
-		Name string `json:"name"`
-		URL  string `json:"url"`
-	} `json:"results"`
-}
-
-//helper function to  GET a JSON and add it to the cache if not already there
-func getJSON(URL string, c *pokecache.Cache) ([]byte, error) {
-	jason, ok := c.Get(URL)
-	if !ok {
-		res, err := http.Get(URL)
-		if err != nil {
-			return nil, err
-		}
-		defer res.Body.Close()
-
-		// read the JSON
-		jason, err = io.ReadAll(res.Body)
-		if err != nil {
-			return nil, err
-		}
-		c.Add(URL, jason)
-	}
-	return jason, nil
-}
 
 // map and mapb command helper
 func areaLocationPrinter(URL string, c *pokecache.Cache) error {
@@ -155,59 +128,14 @@ func previousLocationAreas(args []string, c *pokecache.Cache) error {
 	return areaLocationPrinter(URL, c)
 }
 
-// json interpreter struct for explore command
-type encounters struct {
-	EncounterMethodRates []struct {
-		EncounterMethod struct {
-			Name string `json:"name"`
-			URL  string `json:"url"`
-		} `json:"encounter_method"`
-		VersionDetails []struct {
-			Rate    int `json:"rate"`
-			Version struct {
-				Name string `json:"name"`
-				URL  string `json:"url"`
-			} `json:"version"`
-		} `json:"version_details"`
-	} `json:"encounter_method_rates"`
-	GameIndex int `json:"game_index"`
-	ID        int `json:"id"`
-	Location  struct {
-		Name string `json:"name"`
-		URL  string `json:"url"`
-	} `json:"location"`
-	Name  string `json:"name"`
-	Names []struct {
-		Language struct {
-			Name string `json:"name"`
-			URL  string `json:"url"`
-		} `json:"language"`
-		Name string `json:"name"`
-	} `json:"names"`
-	PokemonEncounters []struct {
-		Pokemon struct {
-			Name string `json:"name"`
-			URL  string `json:"url"`
-		} `json:"pokemon"`
-		VersionDetails []struct {
-			EncounterDetails []struct {
-				Chance          int   `json:"chance"`
-				ConditionValues []any `json:"condition_values"`
-				MaxLevel        int   `json:"max_level"`
-				Method          struct {
-					Name string `json:"name"`
-					URL  string `json:"url"`
-				} `json:"method"`
-				MinLevel int `json:"min_level"`
-			} `json:"encounter_details"`
-			MaxChance int `json:"max_chance"`
-			Version   struct {
-				Name string `json:"name"`
-				URL  string `json:"url"`
-			} `json:"version"`
-		} `json:"version_details"`
-	} `json:"pokemon_encounters"`
+// struct to store pokemon name and pokemon data location
+type pokemon struct {
+	Name string `json:"name"`
+	URL  string `json:"url"`
 }
+
+//gloabl variable having the latest location's pokemons
+var currentPokemons = make([]pokemon, 0)
 
 //encounter command
 func encounter(args []string, c *pokecache.Cache) error {
@@ -236,7 +164,65 @@ func encounter(args []string, c *pokecache.Cache) error {
 	fmt.Printf("Exploring %v...\n", args[0])
 	fmt.Println("Found Pokemon:")
 	for _, pokemon := range pokemons.PokemonEncounters {
+		currentPokemons = append(currentPokemons, pokemon.Pokemon)
 		fmt.Println(pokemon.Pokemon.Name)
 	}
+	return nil	
+}
+
+//global variable showing the caught pokemon
+var caught = make([]pokemon, 0)
+
+func catch(args []string, c *pokecache.Cache) error {
+	if len(args) == 0 {
+		fmt.Println("You caught nothing! Usage catch <pokemon-you-want-to-catch>")
+		return nil
+	}
+	if len(currentPokemons) == 0 {
+		fmt.Println("You need to use the explore command to find some pokemons first!")
+		return nil
+	}
+
+	pokemonName := args[0]
+	pokemonURL := ""
+	for _, poke := range caught {
+		if poke.Name == pokemonName {
+		fmt.Printf("You already caught a %v!", pokemonName)
+		return nil
+	}
+	}
+	for _, poke := range currentPokemons {
+		if poke.Name == pokemonName {
+			pokemonURL = poke.URL
+		}
+	}
+	if pokemonURL == "" {
+		fmt.Println("This pokemon does not exist in this location!")
+		fmt.Println("Try to catch a pokemon in the current area!")
+		return nil
+	}
+
+	jason, err := getJSON(pokemonURL, c)
+	if err!=nil {
+		fmt.Printf("Error Getting Pokemon data! Error: %v\n", err)
+		return err
+	}
+
+	var stats pokemonStat
+	if err := json.Unmarshal(jason, &stats); err != nil {
+		fmt.Printf("Error getting Pokemon data. Error: %v\n", err)
+		return err
+	}
+
+	fmt.Printf("Throwing a Pokeball at %v", pokemonName)
+	exp := stats.BaseExperience
+	roll := rand.IntN(exp)
+	if roll >= 35 {
+		fmt.Printf("%v escaped!\n", pokemonName)
+	} else {
+		caught = append(caught, pokemon{pokemonName,pokemonURL})
+		fmt.Printf("%v is caught!\n", pokemonName)
+	}
+
 	return nil
 }
